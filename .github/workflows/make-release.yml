@@ -1,32 +1,66 @@
 name: make-release
+# Trigger manually via the Actions UI.
+# Provide a version tag in the format vX.Y.Z (e.g. v1.2.3).
+# The workflow will:
+#   1. Build both CSS theme files.
+#   2. Create a git tag for the version.
+#   3. Publish a GitHub Release with the built CSS files as assets.
+#   4. Deploy the auto-updating theme to GitHub Pages.
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout
-      - uses: actions/checkout@v2
-      
+      # Checkout with full history so tags are available
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Set up Node so we can use the npm build scripts defined in package.json
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      # Install Sass
+      - name: Install dependencies
+        run: npm ci
+
       # Create dist directory
       - name: Create /dist
-        run: mkdir dist
+        run: mkdir -p dist
 
-      # Build CSS
-      - name: Sass Build
-        uses: gha-utilities/sass-build@v0.4.8
+      # Build auto-updating theme (imports CSS from gh-pages at runtime)
+      - name: Build auto-updating theme
+        run: npm run build-auto
+
+      # Build self-contained static theme
+      - name: Build static theme
+        run: npm run build-static
+
+      # Create GitHub Release, create the tag, and attach built CSS files
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          source: src/fluent-build.scss
-          destination: dist/Fluent-Discord.css
-          outputStyle: expanded
-          
-      # Delete @charset
-      - name: Delete charset
-        run: sed -i '1d' dist/Fluent-Discord.css
+          tag_name: ${{ github.event.inputs.version }}
+          name: ${{ github.event.inputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/Fluent-Discord.theme.css
+            dist/Fluent-Discord-static.theme.css
 
-      # Deploy to gh-pages
+      # Deploy to gh-pages (keeps the auto-updating theme URL working)
       - name: GitHub Pages action
         uses: peaceiris/actions-gh-pages@v3.7.3
         with:
